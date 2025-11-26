@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\OrderItem;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class RecommendationService
 {
@@ -15,10 +16,8 @@ class RecommendationService
     public function getPopularProducts(int $limit = 10): Collection
     {
         return Product::select('products.*')
-            ->join('order_items', 'products.id', '=', 'order_items.product_id')
-            ->selectRaw('SUM(order_items.quantity) as total_sold')
-            ->groupBy('products.id')
-            ->orderBy('total_sold', 'desc')
+            ->join(DB::raw('(SELECT product_id, SUM(quantity) as total_sold FROM order_items GROUP BY product_id) as oi'), 'products.id', '=', 'oi.product_id')
+            ->orderBy('oi.total_sold', 'desc')
             ->limit($limit)
             ->get();
     }
@@ -39,16 +38,17 @@ class RecommendationService
         }
 
         // Find other products bought by these users
-        return Product::select('products.*')
-            ->join('order_items', 'products.id', '=', 'order_items.product_id')
+        $productIds = DB::table('order_items')
             ->join('orders', 'order_items.order_id', '=', 'orders.id')
             ->whereIn('orders.user_id', $userIds)
-            ->where('products.id', '!=', $productId)
-            ->selectRaw('COUNT(order_items.product_id) as frequency')
-            ->groupBy('products.id')
+            ->where('order_items.product_id', '!=', $productId)
+            ->groupBy('order_items.product_id')
+            ->selectRaw('order_items.product_id, COUNT(order_items.product_id) as frequency')
             ->orderBy('frequency', 'desc')
             ->limit($limit)
-            ->get();
+            ->pluck('product_id');
+
+        return Product::whereIn('id', $productIds)->get();
     }
 
     /**
@@ -79,16 +79,17 @@ class RecommendationService
         }
 
         // Get products bought by similar users that the current user hasn't bought
-        return Product::select('products.*')
-            ->join('order_items', 'products.id', '=', 'order_items.product_id')
+        $productIds = DB::table('order_items')
             ->join('orders', 'order_items.order_id', '=', 'orders.id')
             ->whereIn('orders.user_id', $similarUserIds)
-            ->whereNotIn('products.id', $userProductIds)
-            ->selectRaw('COUNT(order_items.product_id) as frequency')
-            ->groupBy('products.id')
+            ->whereNotIn('order_items.product_id', $userProductIds)
+            ->groupBy('order_items.product_id')
+            ->selectRaw('order_items.product_id, COUNT(order_items.product_id) as frequency')
             ->orderBy('frequency', 'desc')
             ->limit($limit)
-            ->get();
+            ->pluck('product_id');
+
+        return Product::whereIn('id', $productIds)->get();
     }
 
     /**
