@@ -104,6 +104,10 @@
             <p>Total Orders</p>
         </div>
         <div class="summary-item">
+            <h3>${{ number_format($data['average_transaction_value'], 2) }}</h3>
+            <p>Average Transaction Value</p>
+        </div>
+        <div class="summary-item">
             <h3>{{ $data['total_items'] }}</h3>
             <p>Total Items Sold</p>
         </div>

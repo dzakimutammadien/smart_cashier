@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
 
 class CategoryController extends Controller
 {
@@ -32,7 +33,10 @@ class CategoryController extends Controller
             'description' => 'nullable|string'
         ]);
 
-        $category = Category::create($request->all());
+        $data = $request->all();
+        $data['slug'] = Str::slug($request->name);
+
+        $category = Category::create($data);
 
         return response()->json([
             'success' => true,
@@ -81,7 +85,12 @@ class CategoryController extends Controller
             'description' => 'nullable|string'
         ]);
 
-        $category->update($request->all());
+        $data = $request->all();
+        if ($request->has('name')) {
+            $data['slug'] = Str::slug($request->name);
+        }
+
+        $category->update($data);
 
         return response()->json([
             'success' => true,

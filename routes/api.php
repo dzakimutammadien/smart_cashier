@@ -6,6 +6,8 @@ use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RecommendationController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\RevenueController;
+use App\Http\Controllers\ReportExportController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -39,11 +41,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/weekly-sales', [ReportController::class, 'weeklySales']);
     Route::get('/reports/monthly-sales', [ReportController::class, 'monthlySales']);
     Route::get('/reports/product-analytics', [ReportController::class, 'productAnalytics']);
-    Route::get('/reports/revenue-statistics', [ReportController::class, 'revenueStatistics']);
+    Route::get('/reports/revenue-statistics', [RevenueController::class, 'revenueStatistics']);
     Route::get('/reports/dashboard', [ReportController::class, 'dashboard']);
+    Route::get('/reports/low-stock-products', [ReportController::class, 'lowStockProducts']);
 
     // Export routes
     Route::get('/reports/export/sales', [ReportController::class, 'exportSalesReport']);
     Route::get('/reports/export/product-analytics', [ReportController::class, 'exportProductAnalytics']);
     Route::get('/reports/export/orders', [ReportController::class, 'exportOrders']);
+    Route::get('/reports/export/low-stock-products', [ReportController::class, 'exportLowStockProducts']);
+    Route::get('/reports/export-pdf', [ReportExportController::class, 'exportPdf']);
+    Route::get('/reports/export-excel', [ReportExportController::class, 'exportExcel']);
 });

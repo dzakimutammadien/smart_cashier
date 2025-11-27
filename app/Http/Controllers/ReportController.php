@@ -30,6 +30,7 @@ class ReportController extends Controller
         $totalItems = $sales->sum(function ($order) {
             return $order->items->sum('quantity');
         });
+        $averageTransactionValue = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
 
         $productSales = OrderItem::whereHas('order', function ($query) use ($date) {
             $query->whereDate('created_at', $date);
@@ -47,6 +48,7 @@ class ReportController extends Controller
                 'total_revenue' => $totalRevenue,
                 'total_orders' => $totalOrders,
                 'total_items' => $totalItems,
+                'average_transaction_value' => round($averageTransactionValue, 2),
                 'product_sales' => $productSales->map(function ($item) {
                     return [
                         'product_id' => $item->product_id,
@@ -76,6 +78,7 @@ class ReportController extends Controller
         $totalItems = $sales->sum(function ($order) {
             return $order->items->sum('quantity');
         });
+        $averageTransactionValue = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
 
         $dailyBreakdown = Order::whereBetween('created_at', [$startDate, $endDate])
             ->select(DB::raw('DATE(created_at) as date'), DB::raw('SUM(total) as revenue'), DB::raw('COUNT(*) as orders'))
@@ -100,6 +103,7 @@ class ReportController extends Controller
                 'total_revenue' => $totalRevenue,
                 'total_orders' => $totalOrders,
                 'total_items' => $totalItems,
+                'average_transaction_value' => round($averageTransactionValue, 2),
                 'daily_breakdown' => $dailyBreakdown,
                 'product_sales' => $productSales->map(function ($item) {
                     return [
@@ -133,6 +137,7 @@ class ReportController extends Controller
         $totalItems = $sales->sum(function ($order) {
             return $order->items->sum('quantity');
         });
+        $averageTransactionValue = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
 
         $weeklyBreakdown = Order::whereBetween('created_at', [$startDate, $endDate])
             ->select(
@@ -163,6 +168,7 @@ class ReportController extends Controller
                 'total_revenue' => $totalRevenue,
                 'total_orders' => $totalOrders,
                 'total_items' => $totalItems,
+                'average_transaction_value' => round($averageTransactionValue, 2),
                 'weekly_breakdown' => $weeklyBreakdown,
                 'product_sales' => $productSales->map(function ($item) {
                     return [
@@ -293,8 +299,10 @@ class ReportController extends Controller
     /**
      * Get dashboard overview
      */
-    public function dashboard(): JsonResponse
+    public function dashboard(Request $request): JsonResponse
     {
+        $lowStockThreshold = $request->get('low_stock_threshold', 10);
+
         $today = Carbon::today();
         $thisWeek = Carbon::now()->startOfWeek();
         $thisMonth = Carbon::now()->startOfMonth();
@@ -302,20 +310,24 @@ class ReportController extends Controller
         // Today's metrics
         $todayRevenue = Order::whereDate('created_at', $today)->sum('total');
         $todayOrders = Order::whereDate('created_at', $today)->count();
+        $todayAvgTransaction = $todayOrders > 0 ? $todayRevenue / $todayOrders : 0;
 
         // This week's metrics
         $weekRevenue = Order::whereBetween('created_at', [$thisWeek, Carbon::now()])->sum('total');
         $weekOrders = Order::whereBetween('created_at', [$thisWeek, Carbon::now()])->count();
+        $weekAvgTransaction = $weekOrders > 0 ? $weekRevenue / $weekOrders : 0;
 
         // This month's metrics
         $monthRevenue = Order::whereBetween('created_at', [$thisMonth, Carbon::now()])->sum('total');
         $monthOrders = Order::whereBetween('created_at', [$thisMonth, Carbon::now()])->count();
+        $monthAvgTransaction = $monthOrders > 0 ? $monthRevenue / $monthOrders : 0;
 
         // Total products
         $totalProducts = Product::count();
 
         // Low stock products
-        $lowStockProducts = Product::where('stock', '<', 10)->count();
+        $lowStockProducts = Product::where('stock', '<', $lowStockThreshold)->get();
+        $lowStockCount = $lowStockProducts->count();
 
         // Top selling products (last 30 days)
         $topProducts = OrderItem::whereHas('order', function ($query) {
@@ -340,18 +352,32 @@ class ReportController extends Controller
                 'today' => [
                     'revenue' => $todayRevenue,
                     'orders' => $todayOrders,
+                    'average_transaction' => round($todayAvgTransaction, 2),
                 ],
                 'this_week' => [
                     'revenue' => $weekRevenue,
                     'orders' => $weekOrders,
+                    'average_transaction' => round($weekAvgTransaction, 2),
                 ],
                 'this_month' => [
                     'revenue' => $monthRevenue,
                     'orders' => $monthOrders,
+                    'average_transaction' => round($monthAvgTransaction, 2),
                 ],
                 'inventory' => [
                     'total_products' => $totalProducts,
-                    'low_stock_products' => $lowStockProducts,
+                    'low_stock_products' => $lowStockCount,
+                ],
+                'low_stock_alerts' => [
+                    'threshold' => $lowStockThreshold,
+                    'count' => $lowStockCount,
+                    'products' => $lowStockProducts->map(function ($product) {
+                        return [
+                            'id' => $product->id,
+                            'name' => $product->name,
+                            'stock' => $product->stock,
+                        ];
+                    }),
                 ],
                 'top_products' => $topProducts,
             ],
@@ -419,6 +445,78 @@ class ReportController extends Controller
         }
 
         $filename = 'product_analytics_' . Carbon::now()->format('Y-m-d_H-i-s') . '.csv';
+
+        $callback = function() use ($csvData) {
+            $file = fopen('php://output', 'w');
+            foreach ($csvData as $row) {
+                fputcsv($file, $row);
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    /**
+     * Get low stock products
+     */
+    public function lowStockProducts(Request $request): JsonResponse
+    {
+        $threshold = $request->get('threshold', 10);
+        $limit = $request->get('limit', 50);
+
+        $lowStockProducts = Product::with('category')
+            ->where('stock', '<', $threshold)
+            ->orderBy('stock', 'asc')
+            ->limit($limit)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'threshold' => $threshold,
+                'products' => $lowStockProducts->map(function ($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'stock' => $product->stock,
+                        'price' => $product->price,
+                        'category' => $product->category->name ?? 'N/A',
+                    ];
+                }),
+            ],
+        ]);
+    }
+
+    /**
+     * Export low stock products to CSV
+     */
+    public function exportLowStockProducts(Request $request): Response
+    {
+        $threshold = $request->get('threshold', 10);
+
+        $lowStockProducts = Product::with('category')
+            ->where('stock', '<', $threshold)
+            ->orderBy('stock', 'asc')
+            ->get();
+
+        $csvData = [];
+        $csvData[] = ['Product ID', 'Name', 'Stock', 'Price', 'Category'];
+
+        foreach ($lowStockProducts as $product) {
+            $csvData[] = [
+                $product->id,
+                $product->name,
+                $product->stock,
+                $product->price,
+                $product->category->name ?? 'N/A',
+            ];
+        }
+
+        $filename = 'low_stock_products_' . Carbon::now()->format('Y-m-d_H-i-s') . '.csv';
 
         $callback = function() use ($csvData) {
             $file = fopen('php://output', 'w');
