@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\RecommendationController;
@@ -17,8 +18,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
+    // API routes for categories
+    Route::apiResource('categories', CategoryController::class);
+
     // API routes for products
     Route::apiResource('products', ProductController::class);
+    Route::get('products/search', [ProductController::class, 'search']);
 
     // Order routes
     Route::post('/orders', [OrderController::class, 'store']);
